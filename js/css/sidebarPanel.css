@@ -1,0 +1,214 @@
+﻿/**
+ * 侧边栏面板样式
+ *
+ * 只使用 ComfyUI 官方主题变量（--background / --foreground / --border /
+ * --primary / --secondary / --muted-foreground / --accent），不依赖已移除的 PrimeVue。
+ */
+
+.pa-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    color: var(--foreground, #ffffff);
+    font-size: 13px;
+}
+
+.pa-panel-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px 0;
+    border-bottom: 1px solid var(--border, #494a50);
+    flex: 0 0 auto;
+    overflow-x: auto;
+}
+
+.pa-panel-tab {
+    appearance: none;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    color: var(--muted-foreground, #8a8a8a);
+    padding: 7px 12px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font: inherit;
+    white-space: nowrap;
+}
+
+.pa-panel-tab:hover {
+    background: var(--accent, #313235);
+    color: var(--foreground, #ffffff);
+}
+
+.pa-panel-tab.active {
+    background: var(--primary, #0b8ce9);
+    border-color: var(--primary, #0b8ce9);
+    color: #ffffff;
+}
+
+.pa-panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+}
+
+.pa-panel-section {
+    display: none;
+}
+
+.pa-panel-section.active {
+    display: block;
+}
+
+/* --- 关于分区 --- */
+.pa-about {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 4px 24px;
+}
+
+.pa-about-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.pa-about-version {
+    color: var(--muted-foreground, #8a8a8a);
+    font-size: 12px;
+}
+
+.pa-about-desc {
+    margin: 4px 0 8px;
+    line-height: 1.6;
+    color: var(--foreground, #ffffff);
+    opacity: 0.85;
+}
+
+.pa-about-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.pa-about-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border: 1px solid var(--border, #494a50);
+    border-radius: 8px;
+    color: var(--primary, #0b8ce9);
+    text-decoration: none;
+    font-size: 12px;
+}
+
+.pa-about-link:hover {
+    background: var(--accent, #313235);
+}
+
+.pa-about-section-title {
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.pa-about-qr {
+    width: 220px;
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border, #494a50);
+}
+
+/* --- 面板内的管理器容器 --- */
+.pa-panel .api-config-warning {
+    border-top: none;
+    padding: 0 0 8px;
+    text-align: left;
+}
+
+.pa-panel .settings-form-section.baidu-translate-section {
+    padding: 16px;
+}
+
+.pa-panel .api-config-tabs {
+    margin-top: 4px;
+}
+
+/* 侧边栏宽度较窄，压缩服务商标签与表单间距 */
+.pa-panel .tab-header {
+    gap: 4px;
+    padding-bottom: 6px;
+}
+
+.pa-panel .tab-button {
+    min-width: 72px;
+    padding: 6px 10px;
+}
+
+.pa-panel .tab-title {
+    font-size: 13px;
+}
+
+.pa-panel .tab-subtitle {
+    font-size: 10px;
+}
+
+.pa-panel .settings-form-section {
+    padding: 10px 4px;
+}
+
+/* 规则列表在窄侧边栏里隐藏「规则内容」预览列，避免被裁切 */
+.pa-panel .prompt-list-header .content-cell,
+.pa-panel .prompt-list-row .content-cell {
+    display: none;
+}
+
+.pa-panel .prompt-list-cell.name-cell {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pa-panel .prompt-list-container {
+    height: auto;
+    min-height: 260px;
+}
+
+.pa-panel .rules-config-form {
+    min-width: 0;
+}
+
+/* 规则列表：操作列收窄，名称列留出空间 */
+.pa-panel .prompt-list-cell.action-cell {
+    flex: 0 0 96px;
+    min-width: 96px;
+}
+
+.pa-panel .prompt-list-cell.status-cell {
+    flex: 0 0 46px;
+    min-width: 46px;
+}
+
+/* 规则页签在窄面板里只显示标题 */
+.pa-panel .rules-config-tabs .tab-subtitle {
+    display: none;
+}
+
+.pa-panel .rules-config-tabs .tab-button {
+    min-width: 64px;
+    padding: 6px 8px;
+}
+
+.pa-panel .prompt-list-cell.action-cell .p-button {
+    padding: 2px 4px;
+    min-width: 26px;
+    height: 24px;
+}
+
+.pa-panel .prompt-list-cell {
+    font-size: 12px;
+}

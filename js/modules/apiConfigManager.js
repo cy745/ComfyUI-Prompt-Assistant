@@ -6,7 +6,6 @@
 import { app } from "../../../../scripts/app.js";
 import { logger } from '../utils/logger.js';
 import {
-    createSettingsDialog,
     createFormGroup,
     createInputGroup,
     createSelectGroup,
@@ -19,6 +18,7 @@ import {
 } from "./uiComponents.js";
 import { APIService } from "../services/api.js";
 import { tUI } from "../utils/uiI18n.js";
+import { openPanel } from "./panelBridge.js";
 
 // Sortable库已通过script标签加载，直接使用全局变量
 
@@ -45,48 +45,43 @@ class APIConfigManager {
     }
 
     /**
-     * 显示API配置弹窗
+     * 打开 API 配置（官方侧边栏面板）
      */
     async showAPIConfigModal() {
+        openPanel("api");
+    }
+
+    /**
+     * 把 API 配置 UI 挂载到侧边栏面板容器
+     * @param {HTMLElement} container
+     */
+    async mount(container) {
+        if (!container) return;
+        container.textContent = "";
+        container.classList.add("pa-api-panel");
+
+        const notice = document.createElement("div");
+        notice.className = "api-config-warning";
+        notice.textContent = `*${tUI("免责声明：本插件仅提供 API 调用工具，第三方服务责任与本插件无关，插件所涉用户配置信息均存储于本地。对于因账号使用产生的任何问题，本插件不承担责任！")}`;
+        container.appendChild(notice);
+
+        const body = document.createElement("div");
+        body.className = "pa-api-panel-body";
+        container.appendChild(body);
+
         try {
-            // 防止重复点击“API管理器”叠加出多个弹窗
-            if (document.querySelector('.settings-modal.api-config-dialog-v2')) {
-                logger.debug('API配置弹窗已打开，忽略重复打开');
-                return;
-            }
-
-            logger.debug('打开API配置弹窗 v2.0');
-
-            createSettingsDialog({
-                title: `<i class="pi pi-cog" style="margin-right: 8px;"></i>${tUI('API管理器')}`,
-                dialogClassName: 'api-config-dialog-v2',
-                disableBackdropAndCloseOnClickOutside: true,
-                hideFooter: true,  // 不显示底部的保存/取消按钮
-                renderNotice: (noticeArea) => {
-                    const subtitle = document.createElement('div');
-                    subtitle.className = 'api-config-warning';
-                    subtitle.textContent = `*${tUI('免责声明：本插件仅提供 API 调用工具，第三方服务责任与本插件无关，插件所涉用户配置信息均存储于本地。对于因账号使用产生的任何问题，本插件不承担责任！')}`;
-                    noticeArea.appendChild(subtitle);
-                },
-                renderContent: async (container) => {
-                    await this._loadAllConfigs();
-                    this._createAPIConfigUI(container);
-                },
-                onSave: async () => {
-                    // 不再需要手动保存，因为已经实时保存了
-                }
-            });
+            await this._loadAllConfigs();
+            this._createAPIConfigUI(body);
         } catch (error) {
-            logger.error(`打开API配置弹窗失败: ${error.message}`);
+            logger.error(`加载 API 配置失败: ${error.message}`);
             app.extensionManager.toast.add({
                 severity: "error",
-                summary: "打开配置失败",
+                summary: "加载配置失败",
                 detail: error.message,
-                life: 3000
+                life: 4000
             });
         }
     }
-
     /**
      * 加载所有配置
      */
@@ -1821,83 +1816,64 @@ class APIConfigManager {
      * 删除模型
      */
     async _deleteModel(service, modelType, modelName, tagElement) {
-        // 使用createSettingsDialog创建确认窗口
-        createSettingsDialog({
-            title: `<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>${tUI('确认删除')}`,
-            isConfirmDialog: true,
-            dialogClassName: 'confirm-dialog',
-            saveButtonText: tUI('删除'),
-            saveButtonIcon: 'pi-trash',
-            isDangerButton: true,
-            cancelButtonText: tUI('取消'),
-            renderContent: (content) => {
-                content.className = 'confirm-dialog-content-simple';
-
-                const confirmMessage = document.createElement('p');
-                confirmMessage.className = 'confirm-dialog-message-simple';
-                confirmMessage.textContent = `${tUI('确定要删除模型')} "${modelName}" ${tUI('吗？')}`;
-
-                content.appendChild(confirmMessage);
-            },
-            onSave: async () => {
-                try {
-                    // 调用后端API删除模型
-                    const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models/${modelType}/${encodeURIComponent(modelName)}`), {
-                        method: 'DELETE'
-                    });
-
-                    const result = await res.json();
-
-                    if (!result.success) {
-                        throw new Error(result.error || '删除模型失败');
-                    }
-
-                    // 更新本地数据
-                    const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
-                    const index = models.findIndex(m => m.name === modelName);
-                    if (index >= 0) {
-                        models.splice(index, 1);
-                    }
-
-                    // 移除标签
-                    tagElement.remove();
-
-                    // 如果删除后为空，显示空提示
-                    const container = tagElement.parentElement;
-                    if (container && container.children.length === 0) {
-                        const emptyHint = document.createElement('div');
-                        emptyHint.className = 'empty-hint';
-                        emptyHint.textContent = tUI('暂无配置模型，点击"+ 添加模型"开始配置');
-                        emptyHint.style.cssText = `
-                            font-size: 12px;
-                            color: var(--p-text-muted-color);
-                            padding: 8px;
-                        `;
-                        container.appendChild(emptyHint);
-                    }
-
-                    app.extensionManager.toast.add({
-                        severity: "success",
-                        summary: "模型已删除",
-                        life: 2000
-                    });
-
-                    return true; // 允许关闭对话框
-
-                } catch (error) {
-                    logger.error('删除模型失败', error);
-                    app.extensionManager.toast.add({
-                        severity: "error",
-                        summary: "删除失败",
-                        detail: error.message,
-                        life: 3000
-                    });
-                    return false; // 阻止关闭对话框
-                }
-            }
+        const confirmed = await app.extensionManager.dialog.confirm({
+            title: tUI('确认删除'),
+            message: `${tUI('确定要删除模型')} "${modelName}" ${tUI('吗？')}`,
+            type: 'delete'
         });
-    }
+        if (!confirmed) return;
 
+        try {
+            // 调用后端API删除模型
+            const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models/${modelType}/${encodeURIComponent(modelName)}`), {
+                method: 'DELETE'
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '删除模型失败');
+            }
+
+            // 更新本地数据
+            const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+            const index = models.findIndex(m => m.name === modelName);
+            if (index >= 0) {
+                models.splice(index, 1);
+            }
+
+            // 移除标签
+            tagElement.remove();
+
+            // 如果删除后为空，显示空提示
+            const container = tagElement.parentElement;
+            if (container && container.children.length === 0) {
+                const emptyHint = document.createElement('div');
+                emptyHint.className = 'empty-hint';
+                emptyHint.textContent = tUI('暂无配置模型，点击"+ 添加模型"开始配置');
+                emptyHint.style.cssText = `
+                    font-size: 12px;
+                    color: var(--p-text-muted-color);
+                    padding: 8px;
+                `;
+                container.appendChild(emptyHint);
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "模型已删除",
+                life: 2000
+            });
+        } catch (error) {
+            logger.error('删除模型失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "删除失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
     /**
      * 设置默认模型
      */
@@ -2018,94 +1994,76 @@ class APIConfigManager {
         const service = this.services.find(s => s.id === serviceId);
         const serviceName = service ? service.name : serviceId;
 
-        // 使用createSettingsDialog创建确认窗口
-        createSettingsDialog({
-            title: `<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>${tUI('确认删除')}`,
-            isConfirmDialog: true,
-            dialogClassName: 'confirm-dialog',
-            saveButtonText: tUI('删除'),
-            saveButtonIcon: 'pi-trash',
-            isDangerButton: true,
-            cancelButtonText: tUI('取消'),
-            renderContent: (content) => {
-                content.className = 'confirm-dialog-content-simple';
-
-                const confirmMessage = document.createElement('p');
-                confirmMessage.className = 'confirm-dialog-message-simple';
-                confirmMessage.textContent = `${tUI('确定要删除服务商')} "${serviceName}" ${tUI('吗？')}`;
-
-                content.appendChild(confirmMessage);
-            },
-            onSave: async () => {
-                try {
-                    const res = await fetch(APIService.getApiUrl(`/services/${serviceId}`), {
-                        method: 'DELETE'
-                    });
-
-                    const result = await res.json();
-
-                    if (result.success) {
-                        app.extensionManager.toast.add({
-                            severity: "success",
-                            summary: "删除成功",
-                            life: 3000
-                        });
-
-                        // 重新加载配置并刷新UI
-                        await this._loadAllConfigs();
-
-                        // 查找并移除对应的标签和内容
-                        const tabButton = document.querySelector(`.tab-button[data-tab="${serviceId}"]`);
-                        if (tabButton) {
-                            tabButton.remove();
-                        }
-
-                        const tabPane = document.querySelector(`.tab-pane[data-tab="${serviceId}"]`);
-                        if (tabPane) {
-                            tabPane.remove();
-                        }
-
-                        // 自动切换到百度翻译标签
-                        const header = document.querySelector('.tab-header');
-                        const contentContainer = document.querySelector('.tab-content');
-                        if (header && contentContainer) {
-                            this._switchTab('baidu', header, contentContainer);
-                        }
-
-                        // 如果是最后一个服务商，显示空提示
-                        const listContainer = document.querySelector('.services-list');
-                        if (listContainer && this.services.length === 0) {
-                            const emptyHint = document.createElement('div');
-                            emptyHint.style.cssText = `
-                                text-align: center;
-                                padding: 40px;
-                                color: var(--p-text-muted-color);
-                            `;
-                            emptyHint.textContent = tUI('暂无服务商，点击"新增服务商"开始配置');
-                            listContainer.appendChild(emptyHint);
-                        }
-
-                        // 触发配置同步事件
-                        this.notifyConfigChange();
-
-                        return true; // 允许关闭对话框
-                    } else {
-                        throw new Error(result.error || '删除失败');
-                    }
-                } catch (error) {
-                    logger.error('删除服务商失败', error);
-                    app.extensionManager.toast.add({
-                        severity: "error",
-                        summary: "删除失败",
-                        detail: error.message,
-                        life: 3000
-                    });
-                    return false; // 阻止关闭对话框
-                }
-            }
+        const confirmed = await app.extensionManager.dialog.confirm({
+            title: tUI('确认删除'),
+            message: `${tUI('确定要删除服务商')} "${serviceName}" ${tUI('吗？')}`,
+            type: 'delete'
         });
-    }
+        if (!confirmed) return;
 
+        try {
+            const res = await fetch(APIService.getApiUrl(`/services/${serviceId}`), {
+                method: 'DELETE'
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '删除失败');
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "删除成功",
+                life: 3000
+            });
+
+            // 重新加载配置并刷新UI
+            await this._loadAllConfigs();
+
+            // 查找并移除对应的标签和内容
+            const tabButton = document.querySelector(`.tab-button[data-tab="${serviceId}"]`);
+            if (tabButton) {
+                tabButton.remove();
+            }
+
+            const tabPane = document.querySelector(`.tab-pane[data-tab="${serviceId}"]`);
+            if (tabPane) {
+                tabPane.remove();
+            }
+
+            // 自动切换到百度翻译标签
+            const header = document.querySelector('.tab-header');
+            const contentContainer = document.querySelector('.tab-content');
+            if (header && contentContainer) {
+                this._switchTab('baidu', header, contentContainer);
+            }
+
+            // 如果是最后一个服务商，显示空提示
+            const listContainer = document.querySelector('.services-list');
+            if (listContainer && this.services.length === 0) {
+                const emptyHint = document.createElement('div');
+                emptyHint.style.cssText = `
+                    text-align: center;
+                    padding: 40px;
+                    color: var(--p-text-muted-color);
+                `;
+                emptyHint.textContent = tUI('暂无服务商，点击"新增服务商"开始配置');
+                listContainer.appendChild(emptyHint);
+            }
+
+            // 触发配置同步事件
+            this.notifyConfigChange();
+        } catch (error) {
+            logger.error('删除服务商失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "删除失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
     /**
      * 更新服务商配置
      */

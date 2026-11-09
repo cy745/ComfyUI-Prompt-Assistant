@@ -7,7 +7,6 @@ import { app } from "../../../../scripts/app.js";
 import { logger } from '../utils/logger.js';
 import { ResourceManager } from "../utils/resourceManager.js";
 import {
-    createSettingsDialog,
     createFormGroup,
     createInputGroup,
     createSelectGroup,
@@ -17,6 +16,7 @@ import {
 } from "./uiComponents.js";
 import { APIService } from "../services/api.js";
 import { tUI } from "../utils/uiI18n.js";
+import { openPanel } from "./panelBridge.js";
 
 
 
@@ -36,6 +36,11 @@ class RulesConfigManager {
 
         this.isDirty = false;
         this.initialState = null; // 用于存储状态备份
+
+        // ---侧边栏面板状态（官方 registerSidebarTab 面板）---
+        this._panelContainer = null; // mount 传入的容器，同时作为内联编辑器的定位基准
+        this._panelMounted = false;  // 是否已渲染过（mount 幂等控制）
+        this._inlineEditor = null;   // 当前打开的内联编辑器 { overlay, close }
     }
 
     /**
@@ -55,7 +60,7 @@ class RulesConfigManager {
         };
         this.isDirty = false;
         // 标记表单未修改
-        const form = document.querySelector('.rules-config-dialog .rules-config-form');
+        const form = this._getRulesConfigForm();
         if (form && form.elements.modified_marker) {
             form.elements.modified_marker.value = 'initial';
         }
@@ -85,8 +90,8 @@ class RulesConfigManager {
      */
     _setDirty() {
         this.isDirty = true;
-        // 触发表单修改，以便通用对话框检测到未保存的更改
-        const form = document.querySelector('.rules-config-dialog .rules-config-form');
+        // 触发表单修改，让表单内的修改标记同步更新
+        const form = this._getRulesConfigForm();
         if (form && form.elements.modified_marker) {
             form.elements.modified_marker.value = 'modified_' + Date.now();
             form.elements.modified_marker.dispatchEvent(new Event('change', { bubbles: true }));
@@ -94,69 +99,355 @@ class RulesConfigManager {
     }
 
     /**
-     * 显示规则配置弹窗
+     * 获取当前的规则配置表单元素
+     * 面板内优先，找不到时兼容旧的模态结构
+     * @returns {HTMLElement|null}
+     */
+    _getRulesConfigForm() {
+        const localForm = this._panelContainer?.querySelector?.('.rules-config-form');
+        if (localForm) return localForm;
+        return document.querySelector('.rules-config-dialog .rules-config-form');
+    }
+
+    /**
+     * 打开规则配置面板（ComfyUI 官方侧边栏 Tab）
+     * 保留这个方法名：imageCaption.js / PromptAssistant.js 仍在调用它
      */
     showRulesConfigModal() {
-        try {
-            // 防止重复点击“规则管理器”叠加出多个弹窗
-            if (document.querySelector('.settings-modal.rules-config-dialog')) {
-                logger.debug('规则配置弹窗已打开，忽略重复打开');
-                return;
+        logger.debug('打开规则配置面板');
+        openPanel("rules");
+    }
+
+    /**
+     * 把规则配置 UI 挂载到侧边栏面板容器
+     * 幂等：同一个 container 只渲染一次（壳子正常只会调用一次）
+     * @param {HTMLElement} container 面板容器，宽度约 320~420px，可纵向滚动
+     */
+    async mount(container) {
+        if (!container) return;
+
+        // 幂等：重复调用不重复渲染
+        if (this._panelMounted && this._panelContainer === container && container.childElementCount > 0) {
+            logger.debug('规则配置面板已挂载，跳过重复渲染');
+            return;
+        }
+
+        this._closeInlineEditor();
+
+        this._panelContainer = container;
+        this._panelMounted = true;
+
+        container.textContent = '';
+        container.classList.add('pa-rules-panel');
+        // 内联编辑器的覆盖层以 container 为定位基准
+        if (window.getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+
+        this._createRulesConfigUI(container);
+
+        // 面板里没有模态的「保存/取消」footer，这里补一个保存栏
+        container.appendChild(this._createSaveBar());
+
+        logger.debug('规则配置面板已挂载');
+    }
+
+    /**
+     * 创建面板底部的保存栏
+     * @returns {HTMLElement}
+     */
+    _createSaveBar() {
+        const bar = document.createElement('div');
+        bar.className = 'pa-rules-save-bar';
+        bar.style.position = 'sticky';
+        bar.style.bottom = '0';
+        bar.style.zIndex = '10';
+        bar.style.display = 'flex';
+        bar.style.justifyContent = 'flex-end';
+        bar.style.gap = '8px';
+        bar.style.padding = '8px 12px';
+        bar.style.marginTop = '8px';
+        bar.style.background = 'var(--comfy-menu-bg, var(--background, #202020))';
+        bar.style.borderTop = '1px solid var(--border, #494a50)';
+
+        // ---还原按钮---
+        const restoreButton = document.createElement('button');
+        restoreButton.type = 'button';
+        restoreButton.className = 'p-button p-component p-button-secondary p-button-sm';
+        restoreButton.innerHTML = `<span class="p-button-icon-left pi pi-undo"></span><span class="p-button-label">${tUI('还原')}</span>`;
+        restoreButton.title = tUI('还原到上次保存的配置');
+        restoreButton.onclick = () => {
+            this._restoreState();
+            this._renderPromptLists(); // 重新渲染以显示还原后的状态
+            app.extensionManager.toast.add({
+                severity: 'info',
+                summary: tUI('已还原'),
+                detail: tUI('配置已还原到上次保存的状态'),
+                life: 2500
+            });
+        };
+
+        // ---保存按钮---
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'p-button p-component p-button-sm';
+        saveButton.innerHTML = `<span class="p-button-icon-left pi pi-save"></span><span class="p-button-label">${tUI('保存')}</span>`;
+        saveButton.title = tUI('保存规则配置到服务器');
+        saveButton.onclick = async () => {
+            saveButton.disabled = true;
+            try {
+                await this._handlePanelSave();
+            } finally {
+                saveButton.disabled = false;
             }
+        };
 
-            logger.debug('打开规则配置弹窗');
+        bar.appendChild(restoreButton);
+        bar.appendChild(saveButton);
+        return bar;
+    }
 
-            createSettingsDialog({
-                title: `<i class="pi pi-list" style="margin-right: 8px;"></i>${tUI('规则管理器')}`,
-                dialogClassName: 'rules-config-dialog',
-                disableBackdropAndCloseOnClickOutside: true,
-                renderContent: (container) => {
-                    this._createRulesConfigUI(container);
-                },
-                onSave: async () => {
-                    if (this.isDirty) {
-                        try {
-                            await this._saveConfigToServer();
-                            this._backupState(); // 保存成功后更新备份
-                            app.extensionManager.toast.add({
-                                severity: "success",
-                                summary: "配置已保存",
-                                detail: "所有更改已成功保存到服务器",
-                                life: 3000
-                            });
-                        } catch (error) {
-                            // 错误提示已在 _saveConfigToServer 中处理
-                            return false; // 保存失败时阻止关闭对话框
-                        }
-                    } else {
-                        app.extensionManager.toast.add({
-                            severity: "info",
-                            summary: "无更改",
-                            detail: "配置没有未保存的更改",
-                            life: 3000
-                        });
-                    }
-                    return true; // 关闭对话框
-                },
-                onCancel: () => {
-                    // createSettingsDialog 的通用逻辑会处理确认
-                    // 如果用户确认取消，我们在这里恢复状态
-                    if (this.isDirty) {
-                        this._restoreState();
-                        this._renderPromptLists(); // 重新渲染以显示恢复后的状态
-                    }
-                    return true; // 允许关闭
-                }
+    /**
+     * 面板保存栏的保存逻辑
+     */
+    async _handlePanelSave() {
+        if (!this.isDirty) {
+            app.extensionManager.toast.add({
+                severity: 'info',
+                summary: tUI('无更改'),
+                detail: tUI('配置没有未保存的更改'),
+                life: 3000
+            });
+            return;
+        }
+
+        try {
+            await this._saveConfigToServer();
+            this._backupState(); // 保存成功后更新备份
+            app.extensionManager.toast.add({
+                severity: 'success',
+                summary: tUI('配置已保存'),
+                detail: tUI('所有更改已成功保存到服务器'),
+                life: 3000
             });
         } catch (error) {
-            logger.error(`打开规则配置弹窗失败: ${error.message}`);
+            // _saveConfigToServer 目前只抛错不 toast；如果将来它自己弹了提示，
+            // 会带上 __paToasted 标记，这里就不再重复提示
+            if (!error || !error.__paToasted) {
+                app.extensionManager.toast.add({
+                    severity: 'error',
+                    summary: tUI('保存失败'),
+                    detail: error?.message || tUI('保存过程中发生错误'),
+                    life: 4000
+                });
+            }
+        }
+    }
+
+    /**
+     * 在面板内容区打开内联编辑器（覆盖层，替代原来的模态编辑弹窗）
+     * @param {Object} options
+     * @param {string} options.title 标题
+     * @param {string} [options.icon] 标题图标（PrimeIcon 类名，不含 pi 前缀）
+     * @param {string} [options.saveButtonText] 保存按钮文本
+     * @param {string} [options.cancelButtonText] 取消按钮文本
+     * @param {Function} options.renderBody 渲染编辑器主体，参数为 body 元素
+     * @param {Function} options.onSave 保存回调，参数为 body 元素；返回 false 表示保持打开
+     * @returns {HTMLElement|null} 覆盖层元素
+     */
+    _openInlineEditor(options = {}) {
+        const container = this._panelContainer;
+        if (!container || !container.isConnected) {
             app.extensionManager.toast.add({
-                severity: "error",
-                    summary: tUI("打开配置失败"),
-                    detail: error.message || "打开配置弹窗过程中发生错误",
+                severity: 'error',
+                summary: tUI('面板未就绪'),
+                detail: tUI('请先打开规则配置面板'),
+                life: 3000
+            });
+            return null;
+        }
+
+        this._closeInlineEditor();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'pa-rules-inline-editor';
+        overlay.style.position = 'absolute';
+        overlay.style.left = '0';
+        overlay.style.right = '0';
+        overlay.style.zIndex = '20';
+        overlay.style.display = 'flex';
+        overlay.style.flexDirection = 'column';
+        overlay.style.boxSizing = 'border-box';
+        overlay.style.gap = '8px';
+        overlay.style.padding = '10px 12px';
+        overlay.style.background = 'var(--comfy-menu-bg, var(--background, #202020))';
+        overlay.style.border = '1px solid var(--border, #494a50)';
+        overlay.style.borderRadius = '8px';
+        overlay.style.boxShadow = '0 4px 16px rgba(0, 0, 0, .35)';
+        overlay.style.overflow = 'hidden';
+
+        // 覆盖层贴在容器当前可见区域上（面板可纵向滚动，需要跟随滚动修正）
+        const scroller = this._findScrollParent(container);
+        const syncBounds = () => {
+            const containerRect = container.getBoundingClientRect();
+            const scrollerRect = scroller ? scroller.getBoundingClientRect() : null;
+            const visibleTop = Math.max(containerRect.top, scrollerRect ? scrollerRect.top : 0);
+            const visibleBottom = Math.min(
+                containerRect.bottom,
+                scrollerRect ? scrollerRect.bottom : (window.innerHeight || containerRect.bottom)
+            );
+            overlay.style.top = `${Math.max(0, visibleTop - containerRect.top)}px`;
+            overlay.style.height = `${Math.max(200, visibleBottom - visibleTop)}px`;
+        };
+        syncBounds();
+
+        const detach = () => {
+            (scroller || window).removeEventListener('scroll', syncBounds);
+            window.removeEventListener('resize', syncBounds);
+        };
+        (scroller || window).addEventListener('scroll', syncBounds, { passive: true });
+        window.addEventListener('resize', syncBounds);
+        overlay.__paDetach = detach;
+
+        // ---标题---
+        const header = document.createElement('div');
+        header.className = 'pa-rules-inline-editor-header';
+        header.style.display = 'flex';
+        header.style.alignItems = 'center';
+        header.style.gap = '6px';
+        header.style.flex = '0 0 auto';
+        header.style.fontWeight = '600';
+        if (options.icon) {
+            const iconEl = document.createElement('span');
+            iconEl.className = `pi ${options.icon}`;
+            header.appendChild(iconEl);
+        }
+        const titleEl = document.createElement('span');
+        titleEl.textContent = options.title || '';
+        header.appendChild(titleEl);
+        overlay.appendChild(header);
+
+        // ---主体（由调用方渲染）---
+        const body = document.createElement('div');
+        body.className = 'pa-rules-inline-editor-body';
+        body.style.flex = '1 1 auto';
+        body.style.minHeight = '0';
+        body.style.display = 'flex';
+        body.style.flexDirection = 'column';
+        body.style.overflow = 'auto';
+        overlay.appendChild(body);
+
+        // ---底部按钮---
+        const footer = document.createElement('div');
+        footer.className = 'pa-rules-inline-editor-footer';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-end';
+        footer.style.gap = '8px';
+        footer.style.flex = '0 0 auto';
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'p-button p-component p-button-secondary p-button-sm';
+        cancelButton.innerHTML = `<span class="p-button-label">${options.cancelButtonText || tUI('取消')}</span>`;
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'p-button p-component p-button-sm';
+        saveButton.innerHTML = `<span class="p-button-label">${options.saveButtonText || tUI('保存')}</span>`;
+
+        footer.appendChild(cancelButton);
+        footer.appendChild(saveButton);
+        overlay.appendChild(footer);
+
+        const close = () => {
+            detach();
+            overlay.remove();
+            if (this._inlineEditor && this._inlineEditor.overlay === overlay) {
+                this._inlineEditor = null;
+            }
+        };
+
+        cancelButton.onclick = () => close();
+        saveButton.onclick = async () => {
+            if (typeof options.onSave !== 'function') {
+                close();
+                return;
+            }
+            saveButton.disabled = true;
+            try {
+                const result = await options.onSave(body);
+                if (result === false) return; // 校验未通过，保持编辑器打开
+                close();
+            } catch (error) {
+                logger.error(`内联编辑器保存失败: ${error.message}`);
+                app.extensionManager.toast.add({
+                    severity: 'error',
+                    summary: tUI('保存失败'),
+                    detail: error.message || tUI('保存过程中发生错误'),
                     life: 3000
                 });
+            } finally {
+                saveButton.disabled = false;
+            }
+        };
+
+        // 渲染主体内容（回调内部沿用原来的表单构建逻辑）
+        try {
+            if (typeof options.renderBody === 'function') {
+                options.renderBody(body);
+            }
+        } catch (error) {
+            logger.error(`渲染内联编辑器失败: ${error.message}`);
+            const errorEl = document.createElement('div');
+            errorEl.textContent = tUI('编辑器渲染失败');
+            body.appendChild(errorEl);
         }
+
+        container.appendChild(overlay);
+        this._inlineEditor = { overlay, close };
+
+        // 聚焦第一个可输入元素
+        setTimeout(() => {
+            const target = overlay.querySelector('input:not([disabled]), textarea');
+            if (target) target.focus();
+        }, 60);
+
+        return overlay;
+    }
+
+    /**
+     * 关闭当前内联编辑器（如果有）
+     */
+    _closeInlineEditor() {
+        const editor = this._inlineEditor;
+        this._inlineEditor = null;
+        if (editor && typeof editor.close === 'function') {
+            editor.close();
+        }
+        // 兜底清理可能遗留的覆盖层
+        if (this._panelContainer) {
+            this._panelContainer.querySelectorAll('.pa-rules-inline-editor').forEach((el) => {
+                if (typeof el.__paDetach === 'function') el.__paDetach();
+                el.remove();
+            });
+        }
+    }
+
+    /**
+     * 查找最近的纵向滚动祖先元素
+     * @param {HTMLElement} element
+     * @returns {HTMLElement|null}
+     */
+    _findScrollParent(element) {
+        let node = element ? element.parentElement : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+            const overflowY = window.getComputedStyle(node).overflowY;
+            if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') && node.clientHeight > 0) {
+                return node;
+            }
+            node = node.parentElement;
+        }
+        return null;
     }
 
     /**
@@ -784,27 +1075,29 @@ class RulesConfigManager {
             return;
         }
 
-        createSettingsDialog({
-            title: `<i class="pi pi-pencil" style="margin-right: 8px;"></i>${tUI('编辑翻译规则')}`,
-            isConfirmDialog: true,
-            dialogClassName: 'translate-edit-dialog',
-            renderContent: (content) => {
-                content.className += ' dialog-form-content';
-                content.style.padding = '1rem';
-                content.style.display = 'flex';
-                content.style.flexDirection = 'column';
-                content.style.flex = '1';
+        // 面板内联编辑器（不再使用模态弹窗）
+        this._openInlineEditor({
+            title: tUI('编辑翻译规则'),
+            icon: 'pi-pencil',
+            saveButtonText: tUI('保存'),
+            cancelButtonText: tUI('取消'),
+            renderBody: (body) => {
+                body.style.padding = '0';
 
                 // 显示规则名称（只读）
                 const nameGroup = document.createElement('div');
                 nameGroup.className = 'settings-form-group-item';
                 nameGroup.innerHTML = `
-                    <label class="settings-form-label">规则名称</label>
+                    <label class="settings-form-label">${tUI('规则名称')}</label>
                     <div class="settings-input-wrapper">
-                        <input type="text" class="settings-input" value="${prompt.name}" disabled style="opacity: 0.7;" />
+                        <input type="text" class="settings-input" disabled style="opacity: 0.7;" />
                     </div>
                 `;
                 nameGroup.style.marginBottom = '10px';
+                const nameInput = nameGroup.querySelector('input');
+                if (nameInput) {
+                    nameInput.value = prompt.name || '';
+                }
 
                 // 创建内容编辑区
                 const contentTextarea = createTextareaGroup('规则内容', tUI('请输入翻译规则内容'), 10);
@@ -813,19 +1106,19 @@ class RulesConfigManager {
                 contentTextarea.group.style.flexDirection = 'column';
                 contentTextarea.textarea.value = prompt.content || '';
 
-                content.appendChild(nameGroup);
-                content.appendChild(contentTextarea.group);
+                body.appendChild(nameGroup);
+                body.appendChild(contentTextarea.group);
 
-                content.contentTextarea = contentTextarea.textarea;
+                body.contentTextarea = contentTextarea.textarea;
             },
-            onSave: (content) => {
-                const newContent = content.contentTextarea.value.trim();
+            onSave: (body) => {
+                const newContent = body.contentTextarea.value.trim();
 
                 if (!newContent) {
                     app.extensionManager.toast.add({
                         severity: "error",
                         summary: tUI("编辑失败"),
-                        detail: "规则内容不能为空",
+                        detail: tUI("规则内容不能为空"),
                         life: 3000
                     });
                     return false;
@@ -1000,20 +1293,18 @@ class RulesConfigManager {
             }
         }
 
-        createSettingsDialog({
+        // 面板内联编辑器（不再使用模态弹窗）
+        this._openInlineEditor({
             title: isEdit ? tUI('编辑规则') : tUI('添加规则'),
-            isConfirmDialog: true,
-            dialogClassName: 'prompt-edit-dialog',
-            disableBackdropAndCloseOnClickOutside: true,
             saveButtonText: isEdit ? tUI('保存') : tUI('添加'),
             cancelButtonText: tUI('取消'),
-            renderContent: (content) => {
+            renderBody: (content) => {
                 content.className += ' dialog-form-content';
-                content.style.padding = '10px 40px'; // 增加两侧留白
+                content.style.padding = '0'; // 覆盖层自身已有内边距，面板也更窄
+                content.style.gap = '8px';
                 content.style.display = 'flex';
                 content.style.flexDirection = 'column';
                 content.style.flex = '1';
-                content.style.overflow = 'hidden'; // 整体不滚动，内部 textarea 滚动
 
                 // 创建规则名称输入框
                 const nameInput = createInputGroup('规则名称', tUI('请输入规则名称'));
@@ -1115,10 +1406,10 @@ class RulesConfigManager {
                     app.extensionManager.toast.add({
                         severity: "error",
                         summary: isEdit ? tUI("编辑失败") : tUI("添加失败"),
-                        detail: "规则名称和内容不能为空",
+                        detail: tUI("规则名称和内容不能为空"),
                         life: 3000
                     });
-                    return;
+                    return false; // 校验未通过，保持编辑器打开
                 }
 
                 // 根据类型获取对应的数组
@@ -1133,7 +1424,7 @@ class RulesConfigManager {
                     targetArray = this.videoPrompts;
                 } else {
                     logger.error(`未知的规则类型: ${type}`);
-                    return;
+                    return false;
                 }
 
                 // 检查名称是否重复（排除编辑时的自身）
@@ -1148,7 +1439,7 @@ class RulesConfigManager {
                         detail: `${tUI('规则名称')} "${name}" ${tUI('已存在')}`,
                         life: 3000
                     });
-                    return;
+                    return false; // 校验未通过，保持编辑器打开
                 }
 
                 if (isEdit) {
@@ -1367,7 +1658,7 @@ class RulesConfigManager {
      * @param {string} type 类型
      * @param {string} promptId 规则ID
      */
-    _deletePrompt(type, promptId) {
+    async _deletePrompt(type, promptId) {
         // 获取对应的数据数组
         let dataArray;
         switch (type) {
@@ -1394,40 +1685,32 @@ class RulesConfigManager {
         // 获取规则名称用于提示
         const promptName = dataArray[index].name;
 
-        // 创建确认对话框（使用危险按钮样式）
-        createSettingsDialog({
-            title: `<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>${tUI('确认删除')}`,
-            isConfirmDialog: true,
-            dialogClassName: 'confirm-dialog',
-            disableBackdropAndCloseOnClickOutside: true,
-            saveButtonText: tUI('删除'),
-            saveButtonIcon: 'pi-trash',
-            isDangerButton: true,
-            cancelButtonText: tUI('取消'),
-            renderContent: (content) => {
-                content.style.textAlign = 'center';
-                content.style.padding = '1rem';
+        try {
+            // 使用 ComfyUI 官方的确认弹窗（type: 'delete' 会带危险按钮样式）
+            const confirmed = await app.extensionManager.dialog.confirm({
+                title: tUI('确认删除'),
+                message: `${tUI('确定要删除规则')} "${promptName}" ${tUI('吗？')}`,
+                type: 'delete'
+            });
+            if (!confirmed) return;
 
-                const confirmMessage = document.createElement('p');
-                confirmMessage.textContent = `${tUI('确定要删除规则')} "${promptName}" ${tUI('吗？')}`;
-                confirmMessage.style.margin = '0';
-                confirmMessage.style.fontSize = '1rem';
+            // 从数组中删除规则
+            dataArray.splice(index, 1);
 
-                content.appendChild(confirmMessage);
-            },
-            onSave: () => {
-                // 从数组中删除规则
-                dataArray.splice(index, 1);
+            // 标记为已修改
+            this._setDirty();
 
-                // 标记为已修改
-                this._setDirty();
-
-                // 重新渲染列表
-                this._renderPromptLists();
-
-                return true;
-            }
-        });
+            // 重新渲染列表
+            this._renderPromptLists();
+        } catch (error) {
+            logger.error(`删除规则失败: ${error.message}`);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: tUI("删除失败"),
+                detail: error.message || tUI("删除规则过程中发生错误"),
+                life: 3000
+            });
+        }
     }
 
 

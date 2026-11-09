@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 资源管理器
  * 统一管理所有资源的加载、缓存和访问
  */
@@ -189,7 +189,8 @@ class ResourceManager {
             { id: 'prompt-assistant-common-styles', file: 'common.css' },
             { id: 'prompt-assistant-styles', file: 'assistant.css' },
             { id: 'prompt-assistant-popup-styles', file: 'popup.css' },
-            { id: 'prompt-assistant-ui-components-styles', file: 'uiComponents.css' }
+            { id: 'prompt-assistant-ui-components-styles', file: 'uiComponents.css' },
+            { id: 'prompt-assistant-sidebar-panel-styles', file: 'sidebarPanel.css' }
         ];
 
         stylesToLoad.forEach(style => {

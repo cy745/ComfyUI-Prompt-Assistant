@@ -5,7 +5,9 @@
 
 import { app } from "../../../scripts/app.js";
 import { promptAssistant, PromptAssistant } from './modules/PromptAssistant.js';
-import { registerSettings } from './modules/settings.js';
+import { registerSettings, clearAllCaches } from './modules/settings.js';
+import { registerSidebarPanel } from './modules/sidebarPanel.js';
+import { openPanel } from './modules/panelBridge.js';
 import { FEATURES as ASSISTANT_FEATURES, handleFeatureChange, setFeatureModuleDeps } from './services/features.js';
 import { EventManager } from './utils/eventManager.js';
 import { ResourceManager } from './utils/resourceManager.js';
@@ -73,6 +75,58 @@ app.imageCaption = imageCaption;
 app.registerExtension({
     name: "Comfy.PromptAssistant",
 
+    // 官方 About 面板徽章
+    aboutPageBadges: [
+        {
+            label: "GitHub 仓库",
+            url: "https://github.com/yawiii/ComfyUI-Prompt-Assistant",
+            icon: "pi pi-github"
+        },
+        {
+            label: "使用教程",
+            url: "https://space.bilibili.com/520680644",
+            icon: "pi pi-video"
+        },
+        {
+            label: "问题反馈",
+            url: "https://github.com/yawiii/ComfyUI-Prompt-Assistant/issues",
+            icon: "pi pi-exclamation-circle"
+        }
+    ],
+
+    // 官方命令 + 顶部菜单入口（必须在扩展加载阶段声明，setup 里声明不会注册）
+    commands: [
+        {
+            id: "prompt-assistant.open-panel",
+            label: "打开提示词小助手面板",
+            icon: "pi pi-sparkles",
+            function: () => openPanel("api")
+        },
+        {
+            id: "prompt-assistant.open-rules",
+            label: "打开提示词规则配置",
+            icon: "pi pi-list",
+            function: () => openPanel("rules")
+        },
+        {
+            id: "prompt-assistant.clear-cache",
+            label: "清理提示词小助手缓存",
+            icon: "pi pi-trash",
+            function: () => clearAllCaches()
+        }
+    ],
+    menuCommands: [
+        {
+            path: ["Extensions", "提示词小助手"],
+            commands: [
+                "prompt-assistant.open-panel",
+                "prompt-assistant.open-rules",
+                "prompt-assistant.clear-cache"
+            ]
+        }
+    ],
+
+
     // ---扩展生命周期钩子---
     /**
      * 初始化扩展
@@ -104,6 +158,9 @@ app.registerExtension({
 
             // 注册设置选项
             await registerSettings();
+
+            // 注册官方侧边栏面板（API 配置 / 规则配置 / 关于）
+            registerSidebarPanel();
 
             // 初始化自动翻译拦截器（独立于提示词小助手）
 
