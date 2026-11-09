@@ -19,6 +19,7 @@ import {
 import { APIService } from "../services/api.js";
 import { tUI } from "../utils/uiI18n.js";
 import { openPanel } from "./panelBridge.js";
+import { createServiceSelector } from "./serviceSelector.js";
 
 // Sortable库已通过script标签加载，直接使用全局变量
 
@@ -64,6 +65,34 @@ class APIConfigManager {
         notice.className = "api-config-warning";
         notice.textContent = `*${tUI("免责声明：本插件仅提供 API 调用工具，第三方服务责任与本插件无关，插件所涉用户配置信息均存储于本地。对于因账号使用产生的任何问题，本插件不承担责任！")}`;
         container.appendChild(notice);
+
+        // 当前使用的服务（原设置页的三个服务选择器，迁到面板内）
+        const selectorBox = document.createElement("div");
+        selectorBox.className = "pa-service-selectors";
+
+        const selectorTitle = document.createElement("div");
+        selectorTitle.className = "pa-service-selectors-title";
+        selectorTitle.textContent = tUI("当前使用的服务");
+        selectorBox.appendChild(selectorTitle);
+
+        [
+            ["translate", "翻译"],
+            ["llm", "提示词优化"],
+            ["vlm", "图像反推"]
+        ].forEach(([type, label]) => {
+            const row = document.createElement("div");
+            row.className = "pa-service-selector-row";
+
+            const name = document.createElement("span");
+            name.className = "pa-service-selector-label";
+            name.textContent = tUI(label);
+            row.appendChild(name);
+
+            row.appendChild(createServiceSelector(type, label));
+            selectorBox.appendChild(row);
+        });
+
+        container.appendChild(selectorBox);
 
         const body = document.createElement("div");
         body.className = "pa-api-panel-body";

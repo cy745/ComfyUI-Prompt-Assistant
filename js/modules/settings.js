@@ -59,31 +59,6 @@ function localizeSettingsPayload(payload) {
     return localized;
 }
 
-// ---服务选择器配置---
-const SERVICE_TYPES = {
-    translate: {
-        name: tUI('翻译'),
-        configEndpoint: '/config/translate',
-        serviceType: 'translate',
-        filterKey: 'llm_models',
-        includeBaidu: true
-    },
-    llm: {
-        name: tUI('提示词优化'),
-        configEndpoint: '/config/llm',
-        serviceType: 'llm',
-        filterKey: 'llm_models',
-        includeBaidu: false
-    },
-    vlm: {
-        name: tUI('图像反推'),
-        configEndpoint: '/config/vision',
-        serviceType: 'vlm',
-        filterKey: 'vlm_models',
-        includeBaidu: false
-    }
-};
-
 /**
  * 注册设置选项
  * 将设置选项添加到ComfyUI设置面板
@@ -93,7 +68,8 @@ const SERVICE_TYPES = {
  * 清理全部缓存（历史、标签、翻译、节点文档翻译）
  * Phase 1：原「清理所有缓存」自绘按钮改为命令入口，逻辑保持不变。
  */
-export async function clearAllCaches() {    try {
+export async function clearAllCaches() {
+    try {
 
                             try {
                                 // 获取清理前的缓存统计

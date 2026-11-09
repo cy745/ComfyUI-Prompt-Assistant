@@ -212,3 +212,34 @@
 .pa-panel .prompt-list-cell {
     font-size: 12px;
 }
+/* 当前使用的服务选择器 */
+.pa-service-selectors {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0 12px;
+    border-bottom: 1px solid var(--border, #494a50);
+    margin-bottom: 8px;
+}
+
+.pa-service-selectors-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted-foreground, #8a8a8a);
+}
+
+.pa-service-selector-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pa-service-selector-label {
+    flex: 0 0 64px;
+    font-size: 12px;
+}
+
+.pa-service-selector-row > div {
+    flex: 1 1 auto;
+    min-width: 0;
+}

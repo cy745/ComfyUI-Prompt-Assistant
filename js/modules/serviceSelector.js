@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 服务选择器（侧边栏面板内使用）
  *
  * 原实现位于 settings.js 的自定义设置行里，依赖未文档化的函数 type；
@@ -9,6 +9,32 @@ import { logger } from '../utils/logger.js';
 import { APIService } from '../services/api.js';
 import { tUI } from '../utils/uiI18n.js';
 import { createSelectGroup } from './uiComponents.js';
+
+// ---服务选择器配置---
+const SERVICE_TYPES = {
+    translate: {
+        name: tUI('翻译'),
+        configEndpoint: '/config/translate',
+        serviceType: 'translate',
+        filterKey: 'llm_models',
+        includeBaidu: true
+    },
+    llm: {
+        name: tUI('提示词优化'),
+        configEndpoint: '/config/llm',
+        serviceType: 'llm',
+        filterKey: 'llm_models',
+        includeBaidu: false
+    },
+    vlm: {
+        name: tUI('图像反推'),
+        configEndpoint: '/config/vision',
+        serviceType: 'vlm',
+        filterKey: 'vlm_models',
+        includeBaidu: false
+    }
+};
+
 // ---服务选择器---
 const serviceSelector = {
     _servicesCache: null,
