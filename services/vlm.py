@@ -379,6 +379,9 @@ class VisionService(OpenAICompatibleService):
             effective_filter_thinking_output = filter_thinking_output or disable_thinking_enabled
             thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
             
+            # 请求头选项：服务配置里的 custom_headers / opencode_session_id
+            _header_options = VisionService.get_service_header_options(service, custom_provider_config)
+            
             result = await VisionService._http_request_chat_completions(
                 base_url=base_url,
                 api_key=api_key,
@@ -395,7 +398,9 @@ class VisionService(OpenAICompatibleService):
                 cancel_event=cancel_event,
                 task_type=task_type or TASK_IMAGE_CAPTION,
                 source=source,
-                filter_thinking_output=effective_filter_thinking_output
+                filter_thinking_output=effective_filter_thinking_output,
+                extra_headers=_header_options["extra_headers"],
+                session_id=_header_options["session_id"]
             )
 
             if result["success"]:
@@ -595,6 +600,9 @@ class VisionService(OpenAICompatibleService):
             effective_filter_thinking_output = filter_thinking_output or disable_thinking_enabled
             thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
             
+            # 请求头选项：服务配置里的 custom_headers / opencode_session_id
+            _header_options = VisionService.get_service_header_options(service, custom_provider_config)
+            
             result = await VisionService._http_request_chat_completions(
                 base_url=base_url,
                 api_key=api_key,
@@ -611,7 +619,9 @@ class VisionService(OpenAICompatibleService):
                 cancel_event=cancel_event,
                 task_type=task_type or TASK_VIDEO_CAPTION,
                 source=source,
-                filter_thinking_output=effective_filter_thinking_output
+                filter_thinking_output=effective_filter_thinking_output,
+                extra_headers=_header_options["extra_headers"],
+                session_id=_header_options["session_id"]
             )
 
             if result["success"]:

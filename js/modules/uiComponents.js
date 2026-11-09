@@ -14,16 +14,23 @@ import { tUI, localizeElement, observeLocalizedMutations } from "../utils/uiI18n
  * @returns {number} ComfyUI 弹窗的 z-index 值，如果不存在则返回基础值
  */
 function getComfyUIDialogZIndex() {
-    // ComfyUI 使用 PrimeVue，设置弹窗的类名是 .p-dialog
-    const comfyDialog = document.querySelector('.p-dialog');
-    if (comfyDialog) {
-        const zIndex = parseInt(window.getComputedStyle(comfyDialog).zIndex, 10);
-        if (!isNaN(zIndex)) {
-            return zIndex;
-        }
-    }
-    // 如果没有找到 ComfyUI 弹窗，返回 CSS 变量定义的基础值
-    return 10200;
+    // 旧版 ComfyUI 使用 PrimeVue（.p-dialog）；新版（1.49+）改成 Tailwind 层：
+    // .z-overlay / .z-blocking / [role="dialog"]，设置弹窗的 z-index 只有 1700 左右。
+    // 这里扫描所有可见的对话框/遮罩层，取最大 z-index，保证插件弹窗始终在最上层。
+    const selectors = ['.p-dialog', '.settings-modal', '[role="dialog"]', '.z-overlay', '.z-blocking'];
+    let maxZIndex = 0;
+
+    selectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            const zIndex = parseInt(window.getComputedStyle(el).zIndex, 10);
+            if (!isNaN(zIndex) && zIndex > maxZIndex) {
+                maxZIndex = zIndex;
+            }
+        });
+    });
+
+    // 没有找到任何弹窗时，返回 CSS 变量定义的基础值
+    return maxZIndex > 0 ? maxZIndex : 10200;
 }
 
 /**
@@ -77,6 +84,8 @@ export function createSettingsDialog(options) {
         if (dialogClassName) {
             modal.classList.add(dialogClassName);
         }
+
+
 
         // 如果是确认对话框，设置特殊样式
         if (isConfirmDialog) {

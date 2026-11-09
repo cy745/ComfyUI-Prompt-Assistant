@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 import csv
 import tempfile
 import shutil
@@ -81,11 +82,25 @@ class ConfigManager:
         self.validate_and_fix_model_params()
 
     # --- 数据迁移 ---
+    # 版本化预设服务迁移表：目标版本 -> 该版本新增的预设服务 id
+    # 说明：只"追加缺失的服务"，不覆盖已有服务、不修改 current_services，可重复执行
+    _PRESET_SERVICE_MIGRATIONS = (
+        ("2.2", ("opencode_go",)),  # v2.2: 新增 OpenCode Go 预设服务
+    )
+
     def _run_migrations(self):
         """
         执行数据迁移（按需调用，不影响性能）
         仅在需要时才导入和运行迁移工具
+
+        顺序：
+        1. 记录用户配置迁移前的版本号
+        2. migration_tool 统一处理（确保文件存在 -> CSV标签迁移 -> 旧版迁移 -> 增量更新）
+        3. 版本化预设服务迁移（幂等，见 _ensure_preset_services）
         """
+        # 迁移前版本号：用于判断是否需要追加新版本引入的预设服务
+        previous_version = self._get_user_config_version()
+
         try:
             from .utils.migration_tool import run_migrations
             
@@ -113,6 +128,140 @@ class ConfigManager:
         except Exception as e:
             self._log(f"数据迁移失败: {str(e)}")
             # 迁移失败不影响正常运行，仅记录日志
+
+        # 版本化预设服务迁移：即使上面的迁移工具失败也要执行（幂等，不会覆盖用户数据）
+        self._ensure_preset_services(previous_version)
+
+    @staticmethod
+    def _compare_versions(version_a: str, version_b: str) -> int:
+        """
+        比较两个版本号（"2.1" vs "2.2"、"2.2.0" 等）
+
+        返回:
+            1: version_a > version_b
+            0: 相等
+            -1: version_a < version_b
+        """
+        def parse(version):
+            parts = []
+            for chunk in str(version or "").split('.'):
+                digits = ''.join(ch for ch in chunk if ch.isdigit())
+                parts.append(int(digits) if digits else 0)
+            return parts
+
+        parts_a, parts_b = parse(version_a), parse(version_b)
+        length = max(len(parts_a), len(parts_b))
+        parts_a.extend([0] * (length - len(parts_a)))
+        parts_b.extend([0] * (length - len(parts_b)))
+
+        for a, b in zip(parts_a, parts_b):
+            if a > b:
+                return 1
+            if a < b:
+                return -1
+        return 0
+
+    def _get_user_config_version(self) -> str:
+        """读取用户 config.json 的版本号（不存在或读取失败返回空字符串）"""
+        config = self._read_user_config_file()
+        if not isinstance(config, dict):
+            return ""
+        return self._get_config_version(config)
+
+    def _read_user_config_file(self):
+        """
+        严格读取用户 config.json
+
+        注意：读取失败时返回 None（绝不回退到模板），避免把模板内容误写回用户配置
+        """
+        if not os.path.exists(self.config_path):
+            return None
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _ensure_preset_services(self, previous_version: str):
+        """
+        版本化预设服务迁移（幂等）
+
+        规则：
+        - 仅当用户配置版本 < 迁移目标版本时执行
+        - 只追加模板中已定义、且用户配置中不存在的服务
+        - 不覆盖已有服务（用户填过的 api_key / 模型列表全部保留）
+        - 不修改 current_services（不自动切换用户当前使用的服务）
+        - 重复执行无副作用
+
+        参数:
+            previous_version: 迁移前的用户配置版本号（空字符串表示读不到）
+        """
+        try:
+            pending_ids = []
+            target_version = ""
+
+            for migration_version, service_ids in self._PRESET_SERVICE_MIGRATIONS:
+                # 已经迁移过的版本直接跳过（previous_version 为空视为最旧版本）
+                if previous_version and self._compare_versions(previous_version, migration_version) >= 0:
+                    continue
+                target_version = migration_version
+                pending_ids.extend(service_ids)
+
+            if not pending_ids:
+                return
+
+            config = self._read_user_config_file()
+            if not isinstance(config, dict):
+                # 配置文件不存在/损坏：由 migration_tool 负责创建，这里不动
+                return
+
+            services = config.get('model_services')
+            if not isinstance(services, list):
+                services = []
+                config['model_services'] = services
+
+            existing_ids = {
+                service.get('id') for service in services
+                if isinstance(service, dict) and service.get('id')
+            }
+            template_services = {
+                service.get('id'): service
+                for service in self.default_config.get('model_services', [])
+                if isinstance(service, dict) and service.get('id')
+            }
+
+            added_names = []
+            for service_id in pending_ids:
+                if service_id in existing_ids:
+                    continue
+                template_service = template_services.get(service_id)
+                if not template_service:
+                    continue
+                services.append(copy.deepcopy(template_service))
+                existing_ids.add(service_id)
+                added_names.append(template_service.get('name') or service_id)
+
+            # 同步版本号（只升不降），保证迁移只执行一次
+            need_save = bool(added_names)
+            current_version = self._get_config_version(config)
+            if target_version and self._compare_versions(current_version, target_version) < 0:
+                config['__config_version'] = target_version
+                # 版本号放到最前面，与 migration_tool 的写法保持一致
+                config = {'__config_version': config.pop('__config_version'), **config}
+                need_save = True
+
+            if not need_save:
+                return
+
+            if self._atomic_write_json(self.config_path, config):
+                if added_names:
+                    self._log(f"[config.json] 追加预设服务: {', '.join(added_names)}")
+                if target_version:
+                    self._log(f"[config.json] 预设服务迁移已完成 (v{previous_version or '?'} -> v{target_version})")
+
+        except Exception as e:
+            self._log(f"[config.json] 预设服务迁移失败: {str(e)}")
 
     # --- 统一日志输出 ---
     def _log(self, msg: str):

@@ -1,5 +1,5 @@
 {
-    "__config_version": "2.1",
+    "__config_version": "2.2",
     "__comment": "提示词小助手配置文件模板",
     "baidu_translate": {
         "app_id": "",
@@ -83,6 +83,92 @@
                     "top_p": 0.9
                 }
             ]
+        },
+        {
+            "id": "opencode_go",
+            "type": "openai_compatible",
+            "name": "OpenCode Go",
+            "description": "OpenCode Go 订阅（需订阅并填写 API Key）",
+            "base_url": "https://opencode.ai/inference/go/openai/v1",
+            "api_key": "",
+            "disable_thinking": true,
+            "enable_advanced_params": false,
+            "filter_thinking_output": true,
+            "llm_models": [
+                {
+                    "name": "glm-5.3-flash",
+                    "display_name": "",
+                    "is_default": true,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "glm-5.3",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "deepseek-v4.1-flash",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "kimi-k3",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "kimi-k2.7-code",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "minimax-m3",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "qwen3.8-flash",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "gpt-6-luna",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "grok-4.7",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "top_p": 0.9
+                }
+            ],
+            "vlm_models": []
         },
         {
             "id": "ollama",

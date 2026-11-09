@@ -22,6 +22,20 @@
 > 支持调用云端大模型API、本地Ollama大模型。实现提示词、Markdown节点、节点文档翻译；提示词优化、图像反推和视频反推；常用标签收藏、历史记录等功能。是一个全能all in one的提示词插件！
 
 
+> [!NOTE]
+> **本仓库是社区 Fork（V2.0.7）**，在官方 V2.0.6 基础上修复以下问题：
+> 1. **OpenCode Go / Zen 订阅可直接使用**：自动发送 `x-opencode-session` 请求头与自报 `User-Agent`，
+>    不再触发 `400 MissingSessionID`；Key 过期时给出明确提示；非参数类 400 不再做无意义的 Level-2 降级重试。
+> 2. **适配新版 ComfyUI（1.49+ / 1.59）**：新版前端已移除 PrimeVue，本版本内置 PrimeVue 兼容层
+>    （`js/css/primevue-compat.css`），修复设置页按钮、下拉框样式丢失的问题。
+> 3. **修复管理器弹窗**：API 管理器 / 规则管理器恢复不透明背景，并按当前 ComfyUI 弹窗层级动态计算 z-index，
+>    不会再被系统设置弹窗压住。
+>
+> OpenCode Go 使用方式：设置 → 提示词小助手 → API管理器 → 新增/选择 `OpenCode Go`，
+> 填入在 [OpenCode Console](https://opencode.ai/console) 创建的 API Key 即可（Base URL 为
+> `https://opencode.ai/inference/go/openai/v1`）。旧地址 `https://opencode.ai/zen/go/v1` 也兼容。
+
+
 ## **📣更新**
 
 <details open>

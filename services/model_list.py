@@ -12,6 +12,9 @@ except ImportError:
     # 如果导入失败,使用默认值
     ERROR_PREFIX = "✨-错误"
 
+# 统一请求头构建（纯逻辑模块，OpenCode 域名自动注入 x-opencode-session）
+from ..utils.request_headers import build_request_headers, parse_error_body
+
 # --- 智谱AI预定义模型列表 ---
 ZHIPU_MODELS = [
     "glm-5.1",
@@ -98,11 +101,9 @@ def _fetch_openai_compatible_models(base_url: str, api_key: str) -> Dict:
     """获取OpenAI兼容API的模型列表"""
     try:
         url = f"{base_url.rstrip('/')}/models"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
+        # 统一请求头：自报 UA + OpenCode 域名自动注入 x-opencode-session
+        headers = build_request_headers(base_url=base_url, api_key=api_key)
+        headers["Accept"] = "application/json"
         
         response = httpx.get(url, headers=headers, timeout=10.0)
         
@@ -117,9 +118,12 @@ def _fetch_openai_compatible_models(base_url: str, api_key: str) -> Dict:
                 "error": "API地址错误,未找到模型接口"
             }
         elif response.status_code != 200:
+            # 尽量回显服务端原始错误（如 OpenCode 的 MissingSessionID / api_key_expired）
+            error_info = parse_error_body(response.text)
+            detail = error_info.get("message") or ""
             return {
                 "success": False,
-                "error": f"API返回错误 (HTTP {response.status_code})"
+                "error": f"API返回错误 (HTTP {response.status_code})" + (f": {detail}" if detail else "")
             }
         
         data = response.json()

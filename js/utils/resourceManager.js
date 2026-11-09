@@ -184,6 +184,8 @@ class ResourceManager {
      */
     static #loadStyles() {
         const stylesToLoad = [
+            // PrimeVue 兼容层必须最先加载：为旧版 PrimeVue 组件补齐 --p-* 令牌与基础样式
+            { id: 'prompt-assistant-primevue-compat-styles', file: 'primevue-compat.css' },
             { id: 'prompt-assistant-common-styles', file: 'common.css' },
             { id: 'prompt-assistant-styles', file: 'assistant.css' },
             { id: 'prompt-assistant-popup-styles', file: 'popup.css' },

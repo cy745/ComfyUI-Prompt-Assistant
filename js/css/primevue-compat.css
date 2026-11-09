@@ -1,0 +1,472 @@
+﻿/**
+ * PrimeVue 兼容层（PrimeVue Compatibility Layer）
+ *
+ * 背景：
+ *   ComfyUI 旧版前端（<= 1.39.x）内置 PrimeVue，插件的按钮、下拉框、弹窗等
+ *   组件依赖 PrimeVue 的 `.p-*` 基础样式和 `--p-*` 设计令牌。
+ *   ComfyUI 新版前端（1.49+ / 1.59）已经移除 PrimeVue，`--p-*` 变量和
+ *   `.p-*` 基础类全部消失，导致：
+ *     - 弹窗背景透明（--p-dialog-background 为空）
+ *     - 按钮变成无样式的灰色方块
+ *     - 自定义下拉框里的原生 <select> 直接暴露出来（.p-hidden-accessible 失效）
+ *
+ * 策略：
+ *   1. index.js 启动时检测页面是否还有 PrimeVue（哨兵变量 --p-highlight-background
+ *      / --p-highlight-bg）。没有则给 <html> 加 `pa-no-primevue` 类。
+ *   2. 本文件所有规则都限定在 `html.pa-no-primevue` 下，旧版 ComfyUI 完全不受影响。
+ *   3. 变量值优先取 ComfyUI 新版设计令牌（--card / --foreground / --border / --primary …），
+ *      并给出深色兜底值。
+ */
+
+/* ===================================================
+   1. 设计令牌（--p-* 变量）
+   =================================================== */
+html.pa-no-primevue {
+    /* --- 基础色板 --- */
+    --p-surface-0: #1b1b1d;
+    --p-surface-50: #222225;
+    --p-surface-100: #2a2a2e;
+    --p-surface-400: #6f7075;
+    --p-surface-700: #3a3b40;
+
+    --p-primary-100: #cfe6fb;
+    --p-primary-400: #3aa0f0;
+    --p-primary-500: #0b8ce9;
+    --p-primary-color: var(--primary, #0b8ce9);
+    --p-primary-hover-color: #3aa0f0;
+
+    --p-green-500: #4caf50;
+    --p-green-600: #43a047;
+    --p-red-400: #ef5350;
+    --p-red-500: #e53935;
+    --p-red-600: #d32f2f;
+    --p-orange-500: #fd9903;
+
+    /* --- 文本 --- */
+    --p-text-color: var(--foreground, #ffffff);
+    --p-text-muted-color: var(--muted-foreground, #8a8a8a);
+
+    /* --- 内容容器 --- */
+    --p-content-background: var(--card, #262729);
+    --p-content-border-color: var(--border, #494a50);
+    --p-panel-border-color: var(--border, #494a50);
+
+    /* --- 弹窗 --- */
+    --p-dialog-background: var(--card, #262729);
+    --p-dialog-border-color: var(--border, #494a50);
+    --p-dialog-border-radius: 12px;
+    --p-dialog-color: var(--foreground, #ffffff);
+    --p-dialog-header-color: var(--foreground, #ffffff);
+    --p-dialog-header-padding: 1.1rem 1.5rem;
+    --p-dialog-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+
+    /* --- 输入框 --- */
+    --p-inputtext-background: var(--accent, #313235);
+    --p-inputtext-color: var(--foreground, #ffffff);
+    --p-inputtext-border-color: var(--border, #494a50);
+    --p-inputtext-border-radius: 8px;
+    --p-inputtext-hover-border-color: #6b6c73;
+    --p-inputtext-focus-border-color: var(--primary, #0b8ce9);
+    --p-inputtext-focus-ring-shadow: 0 0 0 2px rgba(11, 140, 233, 0.25);
+    --p-inputtext-shadow: none;
+    --p-input-background: var(--accent, #313235);
+    --p-form-field-hover-border-color: #6b6c73;
+    --p-form-field-focus-border-color: var(--primary, #0b8ce9);
+    --p-form-field-filled-hover-background: var(--accent, #313235);
+
+    /* --- 下拉框 --- */
+    --p-select-background: var(--accent, #313235);
+    --p-select-border-color: var(--border, #494a50);
+    --p-select-border-radius: 8px;
+    --p-select-color: var(--foreground, #ffffff);
+    --p-select-shadow: none;
+    --p-select-padding-x: 0.75rem;
+    --p-select-padding-y: 0.5rem;
+    --p-select-overlay-background: var(--card, #262729);
+    --p-select-overlay-border-color: var(--border, #494a50);
+    --p-select-overlay-border-radius: 8px;
+    --p-select-overlay-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    --p-select-list-gap: 2px;
+    --p-select-option-border-radius: 6px;
+    --p-select-option-color: var(--foreground, #ffffff);
+    --p-select-option-focus-background: var(--accent, #313235);
+    --p-select-option-focus-color: var(--foreground, #ffffff);
+    --p-select-option-selected-background: rgba(11, 140, 233, 0.18);
+    --p-select-option-selected-color: var(--primary, #0b8ce9);
+
+    /* --- 按钮 --- */
+    --p-button-primary-background: var(--primary, #0b8ce9);
+    --p-button-primary-border-color: var(--primary, #0b8ce9);
+    --p-button-primary-color: #ffffff;
+    --p-button-primary-hover-background: #3aa0f0;
+    --p-button-primary-hover-border-color: #3aa0f0;
+    --p-button-primary-hover-color: #ffffff;
+    --p-button-secondary-background: var(--accent, #313235);
+    --p-button-secondary-border-color: var(--border, #494a50);
+    --p-button-secondary-color: var(--foreground, #ffffff);
+    --p-button-secondary-hover-background: #3d3e44;
+    --p-button-text-primary-color: var(--primary, #0b8ce9);
+    --p-button-text-secondary-color: var(--muted-foreground, #8a8a8a);
+    --p-button-text-secondary-hover-background: rgba(255, 255, 255, 0.08);
+    --p-button-danger-background: var(--destructive, #b33a3a);
+    --p-button-danger-border-color: var(--destructive, #b33a3a);
+    --p-button-danger-color: #ffffff;
+    --p-button-danger-hover-background: #c94848;
+    --p-button-danger-hover-border-color: #c94848;
+    --p-button-danger-active-border-color: rgba(179, 58, 58, 0.35);
+
+    /* --- 复选框 --- */
+    --p-checkbox-background: var(--accent, #313235);
+    --p-checkbox-border-color: var(--border, #494a50);
+    --p-checkbox-border-radius: 6px;
+    --p-checkbox-checked-background: var(--primary, #0b8ce9);
+    --p-checkbox-checked-border-color: var(--primary, #0b8ce9);
+    --p-checkbox-checked-hover-background: #3aa0f0;
+    --p-checkbox-checked-hover-border-color: #3aa0f0;
+    --p-checkbox-hover-border-color: #6b6c73;
+    --p-checkbox-icon-checked-color: #ffffff;
+
+    /* --- 分隔线 --- */
+    --p-divider-border-color: var(--border, #494a50);
+    --p-divider-color: var(--border, #494a50);
+
+    /* --- 列表 / 列表框 --- */
+    --p-listbox-background: var(--card, #262729);
+    --p-listbox-option-selected-color: var(--primary, #0b8ce9);
+    --p-list-item-color: var(--foreground, #ffffff);
+    --p-list-item-padding: 0.5rem 0.75rem;
+    --p-list-padding: 0.35rem;
+    --p-list-option-focus-background: var(--accent, #313235);
+    --p-list-option-selected-focus-background: rgba(11, 140, 233, 0.18);
+
+    /* --- 消息条 --- */
+    --p-message-info-background: rgba(11, 140, 233, 0.12);
+    --p-message-info-border-color: rgba(11, 140, 233, 0.4);
+    --p-message-info-color: #9ed0f7;
+    --p-message-error-color: #ef5350;
+    --p-message-success-color: #66bb6a;
+    --p-message-warn-color: #fd9903;
+
+    /* --- 滚动条 --- */
+    --p-scrollpanel-bar-background: rgba(255, 255, 255, 0.18);
+}
+
+/* ===================================================
+   2. 基础组件样式
+   =================================================== */
+
+/* 通用组件：字体与盒模型 */
+:where(html.pa-no-primevue) .p-component {
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    box-sizing: border-box;
+}
+
+:where(html.pa-no-primevue) .p-component *,
+:where(html.pa-no-primevue) .p-component *::before,
+:where(html.pa-no-primevue) .p-component *::after {
+    box-sizing: border-box;
+}
+
+/* 可访问性隐藏：PrimeVue 用它藏起原生 select，缺失时会把原生下拉框暴露出来 */
+:where(html.pa-no-primevue) .p-hidden-accessible {
+    border: 0 !important;
+    clip: rect(0 0 0 0) !important;
+    height: 1px !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    position: absolute !important;
+    width: 1px !important;
+    white-space: nowrap !important;
+}
+
+:where(html.pa-no-primevue) .p-hidden {
+    display: none !important;
+}
+
+/* --- 按钮 --- */
+:where(html.pa-no-primevue) .p-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--p-button-primary-border-color);
+    border-radius: 8px;
+    background: var(--p-button-primary-background);
+    color: var(--p-button-primary-color);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+:where(html.pa-no-primevue) .p-button:hover:not(:disabled):not(.p-disabled) {
+    background: var(--p-button-primary-hover-background);
+    border-color: var(--p-button-primary-hover-border-color);
+    color: var(--p-button-primary-hover-color);
+}
+
+:where(html.pa-no-primevue) .p-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(11, 140, 233, 0.35);
+}
+
+:where(html.pa-no-primevue) .p-button:disabled,
+:where(html.pa-no-primevue) .p-button.p-disabled {
+    opacity: 0.55;
+    cursor: default;
+    pointer-events: none;
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-secondary {
+    background: var(--p-button-secondary-background);
+    border-color: var(--p-button-secondary-border-color, var(--border, #494a50));
+    color: var(--p-button-secondary-color);
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-secondary:hover:not(:disabled):not(.p-disabled) {
+    background: var(--p-button-secondary-hover-background);
+    border-color: var(--p-button-secondary-hover-background);
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-danger {
+    background: var(--p-button-danger-background);
+    border-color: var(--p-button-danger-border-color);
+    color: var(--p-button-danger-color);
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-danger:hover:not(:disabled):not(.p-disabled) {
+    background: var(--p-button-danger-hover-background);
+    border-color: var(--p-button-danger-hover-border-color);
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-text {
+    background: transparent;
+    border-color: transparent;
+    color: var(--p-button-text-primary-color);
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-text:hover:not(:disabled):not(.p-disabled) {
+    background: var(--p-button-text-secondary-hover-background);
+    border-color: transparent;
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-sm {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    gap: 0.35rem;
+}
+
+:where(html.pa-no-primevue) .p-button.p-button-icon-only {
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+}
+
+:where(html.pa-no-primevue) .p-button .p-button-label {
+    display: inline-block;
+    line-height: 1.2;
+}
+
+:where(html.pa-no-primevue) .p-button .p-button-icon,
+:where(html.pa-no-primevue) .p-button .p-button-icon-left {
+    font-size: 0.9rem;
+    line-height: 1;
+}
+
+/* --- 输入框 --- */
+:where(html.pa-no-primevue) .p-inputtext {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: var(--p-inputtext-border-radius);
+    background: var(--p-inputtext-background);
+    color: var(--p-inputtext-color);
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    box-shadow: var(--p-inputtext-shadow);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:where(html.pa-no-primevue) .p-inputtext::placeholder {
+    color: var(--p-text-muted-color);
+}
+
+:where(html.pa-no-primevue) .p-inputtext:hover:not(:focus):not(:disabled) {
+    border-color: var(--p-inputtext-hover-border-color);
+}
+
+:where(html.pa-no-primevue) .p-inputtext:focus {
+    border-color: var(--p-inputtext-focus-border-color);
+    box-shadow: var(--p-inputtext-focus-ring-shadow);
+}
+
+:where(html.pa-no-primevue) .p-textarea {
+    min-height: 6rem;
+    resize: vertical;
+}
+
+/* --- 弹窗结构 --- */
+:where(html.pa-no-primevue) .p-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--p-dialog-header-color);
+}
+
+:where(html.pa-no-primevue) .p-dialog-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.3;
+    display: inline-flex;
+    align-items: center;
+}
+
+:where(html.pa-no-primevue) .p-dialog-header-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+:where(html.pa-no-primevue) .p-dialog-header-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--p-button-text-secondary-color);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+:where(html.pa-no-primevue) .p-dialog-header-icon:hover {
+    background: var(--p-button-text-secondary-hover-background);
+}
+
+:where(html.pa-no-primevue) .p-dialog-content {
+    color: var(--p-dialog-color);
+}
+
+:where(html.pa-no-primevue) .p-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+/* --- 下拉框（自定义 pa-dropdown 复用了 p-dropdown 类名） --- */
+:where(html.pa-no-primevue) .p-dropdown {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+}
+
+:where(html.pa-no-primevue) .p-dropdown .p-dropdown-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:where(html.pa-no-primevue) .p-dropdown .p-dropdown-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem;
+    color: var(--p-text-muted-color);
+}
+
+:where(html.pa-no-primevue) .p-dropdown-panel {
+    background: var(--p-select-overlay-background);
+    border: 1px solid var(--p-select-overlay-border-color);
+    border-radius: var(--p-select-overlay-border-radius);
+    box-shadow: var(--p-select-overlay-shadow);
+    overflow: hidden;
+}
+
+:where(html.pa-no-primevue) .p-dropdown-items {
+    list-style: none;
+    margin: 0;
+    padding: var(--p-list-padding);
+    max-height: 16rem;
+    overflow-y: auto;
+}
+
+:where(html.pa-no-primevue) .p-dropdown-item {
+    padding: var(--p-list-item-padding);
+    border-radius: var(--p-select-option-border-radius);
+    color: var(--p-select-option-color);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+:where(html.pa-no-primevue) .p-dropdown-item:hover {
+    background: var(--p-select-option-focus-background);
+}
+
+:where(html.pa-no-primevue) .p-dropdown-item.p-highlight {
+    background: var(--p-select-option-selected-background);
+    color: var(--p-select-option-selected-color);
+}
+
+/* --- 链接按钮 --- */
+:where(html.pa-no-primevue) .p-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+}
+
+/* --- 浮标签容器 --- */
+:where(html.pa-no-primevue) .p-floatlabel {
+    position: relative;
+    display: block;
+}
+
+/* ===================================================
+   3. 新版 ComfyUI 设置页行布局适配
+   ComfyUI 1.59 把自定义设置元素放进
+   `<div class="setting-item"><div class="flex justify-end">…</div></div>`，
+   插件过去返回的 <tr> 在这里会溢出（高度塌陷）。
+   =================================================== */
+:where(html.pa-no-primevue) .pa-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 2rem;
+}
+
+:where(html.pa-no-primevue) .pa-setting-row > * {
+    flex: 0 1 auto;
+}
+
+:where(html.pa-no-primevue) .pa-setting-row .settings-form-group {
+    margin-bottom: 0;
+    min-width: 200px;
+}
+
+:where(html.pa-no-primevue) .pa-setting-row .float-label-container {
+    min-width: 200px;
+}

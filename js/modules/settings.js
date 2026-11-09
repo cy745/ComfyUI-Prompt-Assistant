@@ -96,6 +96,74 @@ const SERVICE_TYPES = {
     }
 };
 
+/**
+ * 判断当前 ComfyUI 设置面板是否为新版布局（1.49+）。
+ * 新版设置面板把自定义设置元素包进 `.setting-item`，不再使用 <tr>/<td> 表格布局；
+ * 旧版（带 PrimeVue）仍然是表格，自定义元素需要返回 <tr>。
+ */
+function isModernSettingsLayout() {
+    try {
+        return !!document.querySelector('.setting-item') || !document.querySelector('.p-dialog');
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * 创建设置行，自动适配新旧 ComfyUI 设置面板。
+ * @param {Function} createControl 返回控件元素的函数
+ * @param {Object} [options]
+ * @param {boolean} [options.fullWidth] 是否占满整行（旧版使用 colspan=2）
+ * @returns {HTMLElement}
+ */
+function createSettingRow(createControl, options = {}) {
+    const { fullWidth = false } = options;
+
+    // ---新版 ComfyUI：外层已经是 flex 行，只需要返回控件本身---
+    if (isModernSettingsLayout()) {
+        const row = document.createElement('div');
+        row.className = 'pa-setting-row';
+        if (fullWidth) {
+            row.classList.add('pa-setting-row-full');
+        }
+        const control = createControl();
+        if (control) {
+            row.appendChild(control);
+        }
+        return row;
+    }
+
+    // ---旧版 ComfyUI：返回完整的表格行---
+    const row = document.createElement('tr');
+    row.className = 'promptwidget-settings-row';
+
+    if (fullWidth) {
+        const cell = document.createElement('td');
+        cell.colSpan = 2;
+        cell.style.display = 'flex';
+        cell.style.alignItems = 'center';
+        cell.style.gap = '12px';
+        const control = createControl();
+        if (control) {
+            cell.appendChild(control);
+        }
+        row.appendChild(cell);
+        return row;
+    }
+
+    const labelCell = document.createElement('td');
+    labelCell.className = 'comfy-menu-label';
+    row.appendChild(labelCell);
+
+    const buttonCell = document.createElement('td');
+    const control = createControl();
+    if (control) {
+        buttonCell.appendChild(control);
+    }
+    row.appendChild(buttonCell);
+    return row;
+}
+
 // ---服务选择器---
 const serviceSelector = {
     _servicesCache: null,
@@ -333,22 +401,10 @@ function showRulesConfigModal() {
  * @returns {HTMLElement} 设置行元素
  */
 function createServiceSelector(type, label) {
-    const row = document.createElement("tr");
-    row.className = "promptwidget-settings-row";
-
-    const labelCell = document.createElement("td");
-    labelCell.className = "comfy-menu-label";
-    row.appendChild(labelCell);
-
-    const selectCell = document.createElement("td");
-
     // 创建加载占位容器
     const container = document.createElement("div");
     container.style.minWidth = "180px";
     container.innerHTML = `<span style="color: var(--p-text-muted-color); font-size: 12px;">${tUI("加载中...")}</span>`;
-
-    selectCell.appendChild(container);
-    row.appendChild(selectCell);
 
     let currentOptions = []; // 存储当前选项引用
     let updateDropdownOptions = null; // 存储更新函数
@@ -457,7 +513,7 @@ function createServiceSelector(type, label) {
     // 销毁监听器的清理函数（简单处理，因为设置面板通常随页面销毁）
     // 如果之后有更复杂的组件挂载逻辑，可以在这里返回一个清理函数给外部调用
 
-    return row;
+    return createSettingRow(() => container);
 }
 
 
@@ -686,21 +742,9 @@ export async function registerSettings() {
                     category: ["✨提示词小助手", " 配置", "API配置"],
                     tooltip: "配置或修改API信息",
                     type: () => {
-                        const row = document.createElement("tr");
-                        row.className = "promptwidget-settings-row";
-
-                        const labelCell = document.createElement("td");
-                        labelCell.className = "comfy-menu-label";
-                        row.appendChild(labelCell);
-
-                        const buttonCell = document.createElement("td");
-                        const button = createLoadingButton(tUI("API管理器"), async () => {
+                        return createSettingRow(() => createLoadingButton(tUI("API管理器"), async () => {
                             showAPIConfigModal();
-                        }, false); // 设置 showSuccessToast 为 false
-
-                        buttonCell.appendChild(button);
-                        row.appendChild(buttonCell);
-                        return row;
+                        }, false)); // 设置 showSuccessToast 为 false
                     }
                 },
 
@@ -1023,14 +1067,6 @@ export async function registerSettings() {
                     category: ["✨提示词小助手", "系统", "清理缓存"],
                     tooltip: "清理所有缓存，包括历史记录、标签、翻译缓存、节点文档翻译缓存",
                     type: () => {
-                        const row = document.createElement("tr");
-                        row.className = "promptwidget-settings-row";
-
-                        const labelCell = document.createElement("td");
-                        labelCell.className = "comfy-menu-label";
-                        row.appendChild(labelCell);
-
-                        const buttonCell = document.createElement("td");
                         const button = createLoadingButton(tUI("清理所有缓存"), async () => {
                             try {
                                 // 获取清理前的缓存统计
@@ -1122,9 +1158,7 @@ export async function registerSettings() {
                             }
                         });
 
-                        buttonCell.appendChild(button);
-                        row.appendChild(buttonCell);
-                        return row;
+                        return createSettingRow(() => button);
                     }
                 },
 
@@ -1136,13 +1170,12 @@ export async function registerSettings() {
                     name: "关于",
                     category: ["✨提示词小助手", " ✨提示词小助手"],
                     type: () => {
-                        const row = document.createElement("tr");
-                        row.className = "promptwidget-settings-row";
-                        const cell = document.createElement("td");
-                        cell.colSpan = 2;
+                        const cell = document.createElement("div");
+                        cell.className = "pa-about-row";
                         cell.style.display = "flex";
                         cell.style.alignItems = "center";
                         cell.style.gap = "12px";
+                        cell.style.flexWrap = "wrap";
                         // 版本徽标容器（整体可点击跳转最新版本）
                         const versionLink = document.createElement("a");
                         versionLink.href = "https://github.com/yawiii/ComfyUI-Prompt-Assistant/releases/latest";
@@ -1327,8 +1360,7 @@ export async function registerSettings() {
 
                         cell.appendChild(wechatTag);
 
-                        row.appendChild(cell);
-                        return row;
+                        return createSettingRow(() => cell, { fullWidth: true });
                     }
                 },
 
@@ -1339,21 +1371,9 @@ export async function registerSettings() {
                     category: ["✨提示词小助手", " 配置", "规则"],
                     tooltip: "可以自定义提示词优化规则，和反推提示词规则，使得提示词生成更加符合你的需求",
                     type: () => {
-                        const row = document.createElement("tr");
-                        row.className = "promptwidget-settings-row";
-
-                        const labelCell = document.createElement("td");
-                        labelCell.className = "comfy-menu-label";
-                        row.appendChild(labelCell);
-
-                        const buttonCell = document.createElement("td");
-                        const button = createLoadingButton(tUI("规则管理器"), async () => {
+                        return createSettingRow(() => createLoadingButton(tUI("规则管理器"), async () => {
                             showRulesConfigModal();
-                        }, false);
-
-                        buttonCell.appendChild(button);
-                        row.appendChild(buttonCell);
-                        return row;
+                        }, false));
                     }
                 },
 

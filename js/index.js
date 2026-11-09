@@ -20,6 +20,38 @@ import './node/captionFrame.js'; // 导入视频手动抽帧功能
 
 
 
+// ====================== PrimeVue 兼容层 ======================
+/**
+ * ComfyUI 新版前端（1.49+ / 1.59）已经移除 PrimeVue，插件依赖的 `--p-*`
+ * 设计令牌与 `.p-*` 基础样式全部消失，导致弹窗透明、按钮/下拉框失去样式。
+ *
+ * 这里用 PrimeVue 的高亮令牌作为哨兵：页面里没有它，就说明当前 ComfyUI
+ * 不再提供 PrimeVue 主题，给 <html> 加上 `pa-no-primevue` 类，
+ * 由 js/css/primevue-compat.css 提供兼容样式。
+ * 旧版 ComfyUI（仍带 PrimeVue）不会加类，行为保持不变。
+ */
+function setupPrimeVueCompat() {
+    try {
+        const root = document.documentElement;
+        if (!root || root.classList.contains('pa-no-primevue')) return;
+        const cs = window.getComputedStyle(root);
+        const sentinel = (
+            cs.getPropertyValue('--p-highlight-background') ||
+            cs.getPropertyValue('--p-highlight-bg') ||
+            ''
+        ).trim();
+        if (!sentinel) {
+            root.classList.add('pa-no-primevue');
+            logger.debug('PrimeVue 兼容层已启用（未检测到 PrimeVue 设计令牌）');
+        }
+    } catch (error) {
+        // 检测失败时不影响插件主体功能
+    }
+}
+setupPrimeVueCompat();
+
+
+
 // ====================== 全局配置与状态 ======================
 
 // 设置全局对象供其他模块访问

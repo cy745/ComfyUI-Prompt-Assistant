@@ -16,6 +16,10 @@ from ..utils.common import (
     TASK_IMAGE_CAPTION, TASK_VIDEO_CAPTION
 )
 from .thinking_control import build_thinking_suppression
+from ..utils.request_headers import (
+    build_request_headers, classify_http_error, is_retryable_param_error,
+    parse_error_body, url_targets_opencode
+)
 
 
 class OpenAICompatibleService(BaseAPIService):
@@ -142,7 +146,9 @@ class OpenAICompatibleService(BaseAPIService):
         cancel_event: Optional[Any] = None,
         task_type: str = None,
         source: str = None,
-        filter_thinking_output: bool = True
+        filter_thinking_output: bool = True,
+        extra_headers: Optional[Dict[str, str]] = None,
+        session_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         使用HTTP直连调用/chat/completions接口
@@ -150,6 +156,8 @@ class OpenAICompatibleService(BaseAPIService):
         
         参数:
             enable_advanced_params: 是否发送高级参数(temperature/top_p/max_tokens)
+            extra_headers: 服务配置里的 custom_headers（自定义请求头，会被过滤）
+            session_id: 服务配置里的 opencode_session_id（覆盖默认的进程级 session）
         """
         from ..server import is_streaming_progress_enabled
         
@@ -160,6 +168,9 @@ class OpenAICompatibleService(BaseAPIService):
             
             # 构建请求URL
             url = cls.parse_api_url(base_url)
+            
+            # 是否为 OpenCode Go（决定 401 提示文案与错误归类）
+            is_opencode = url_targets_opencode(base_url)
             
             # 预处理：合并System Prompts (Level 0 默认应用)
             merged_messages = cls._merge_system_prompts(messages)
@@ -192,10 +203,13 @@ class OpenAICompatibleService(BaseAPIService):
             if thinking_extra:
                 initial_payload.update(thinking_extra)
             
-            # 构建请求头
-            headers = {"Content-Type": "application/json"}
-            if api_key and api_key.strip():
-                headers["Authorization"] = f"Bearer {api_key}"
+            # 构建请求头（统一入口：Content-Type / Authorization / 自报 UA / OpenCode session / 自定义头）
+            headers = build_request_headers(
+                base_url=base_url,
+                api_key=api_key,
+                extra_headers=extra_headers,
+                session_id=session_id
+            )
             
             # 获取HTTP客户端
             request_timeout = 180.0
@@ -260,22 +274,17 @@ class OpenAICompatibleService(BaseAPIService):
                         async with client.stream('POST', url, headers=headers, json=current_payload, follow_redirects=True) as response:
                             if response.status_code != 200:
                                 error_text = await response.aread()
-                                try:
-                                    error_data = json.loads(error_text)
-                                    msg = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
-                                except:
-                                    msg = f'HTTP {response.status_code}: {error_text.decode("utf-8", errors="ignore")[:200]}'
-                                
-                                # 智能识别认证错误
-                                from ..utils.common import _is_auth_error
-                                if response.status_code == 401 or _is_auth_error(msg.lower()):
-                                    msg = "API Key无效或缺失"
-                                
+                                # 统一解析错误体（兼容 OpenAI/OpenCode/FastAPI 多种结构）
+                                error_info = parse_error_body(error_text)
+                                verdict = classify_http_error(
+                                    response.status_code, error_info, is_opencode=is_opencode
+                                )
                                 return {
-                                    "success": False, 
-                                    "error": msg, 
+                                    "success": False,
+                                    "error": verdict["error"],
                                     "status_code": response.status_code,
-                                    "should_retry": response.status_code == 400
+                                    # 仅"疑似参数不兼容"的错误才降级重试（OPC-02 修复）
+                                    "should_retry": verdict["should_retry"]
                                 }
                             
                             full_content = ""
@@ -340,17 +349,8 @@ class OpenAICompatibleService(BaseAPIService):
                             if stream_error:
                                 # BUG-05 修复: 部分代理（xFlow/Grok等）以 HTTP 200+SSE error 返回参数错误时
                                 # 应当触发降级重试，而非直接永久失败
-                                _RETRYABLE_STREAM_ERROR_KEYWORDS = [
-                                    "unsupported", "invalid parameter", "invalid_request",
-                                    "unknown field", "extra inputs", "not supported",
-                                    "unrecognized", "unexpected", "disallowed",
-                                    "does not support"
-                                ]
-                                stream_error_lower = stream_error.lower()
-                                is_retryable_stream_error = any(
-                                    kw in stream_error_lower
-                                    for kw in _RETRYABLE_STREAM_ERROR_KEYWORDS
-                                )
+                                # OPC-02：判定逻辑与 HTTP 400 共用（参数不兼容才重试，认证/模型/会话类不重试）
+                                is_retryable_stream_error = is_retryable_param_error(stream_error)
                                 return {
                                     "success": False,
                                     "error": stream_error,
@@ -547,6 +547,35 @@ class OpenAICompatibleService(BaseAPIService):
             return base_url
         
         return None
+
+    @staticmethod
+    def get_service_header_options(*service_configs) -> Dict[str, Any]:
+        """
+        从服务配置中提取请求头相关选项（custom_headers / opencode_session_id）
+
+        多个配置按传入顺序取第一个有效值，前者优先（通常是 config_manager 里的服务配置）。
+        
+        返回:
+            {"extra_headers": Optional[Dict[str, str]], "session_id": Optional[str]}
+        """
+        extra_headers = None
+        session_id = None
+
+        for config in service_configs:
+            if not isinstance(config, dict):
+                continue
+
+            if extra_headers is None:
+                custom_headers = config.get('custom_headers')
+                if isinstance(custom_headers, dict) and custom_headers:
+                    extra_headers = custom_headers
+
+            if session_id is None:
+                raw_session = config.get('opencode_session_id')
+                if isinstance(raw_session, str) and raw_session.strip():
+                    session_id = raw_session.strip()
+
+        return {"extra_headers": extra_headers, "session_id": session_id}
 
     @staticmethod
     def _sanitize_config_str(s: str) -> str:
