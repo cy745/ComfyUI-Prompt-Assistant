@@ -49,6 +49,12 @@ class APIConfigManager {
      */
     async showAPIConfigModal() {
         try {
+            // 防止重复点击“API管理器”叠加出多个弹窗
+            if (document.querySelector('.settings-modal.api-config-dialog-v2')) {
+                logger.debug('API配置弹窗已打开，忽略重复打开');
+                return;
+            }
+
             logger.debug('打开API配置弹窗 v2.0');
 
             createSettingsDialog({

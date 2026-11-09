@@ -98,6 +98,12 @@ class RulesConfigManager {
      */
     showRulesConfigModal() {
         try {
+            // 防止重复点击“规则管理器”叠加出多个弹窗
+            if (document.querySelector('.settings-modal.rules-config-dialog')) {
+                logger.debug('规则配置弹窗已打开，忽略重复打开');
+                return;
+            }
+
             logger.debug('打开规则配置弹窗');
 
             createSettingsDialog({
