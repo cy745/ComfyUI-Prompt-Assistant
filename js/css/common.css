@@ -342,3 +342,18 @@
     color: var(--p-text-muted-color);
     margin-top: 8px;
 }
+/* ===================================================
+   浮层命中测试修复（ComfyUI 1.49+）
+   ---------------------------------------------------
+   新版 ComfyUI 打开模态设置弹窗时会给 <body> 设置
+   `pointer-events: none`，插件挂在 body 下的浮层会连带
+   变成“看得见但点不到”（点击穿透到下方设置弹窗）。
+   这里显式恢复插件浮层的命中测试。
+   =================================================== */
+.settings-modal,
+.settings-modal-overlay,
+.pa-dropdown-panel,
+.settings-modal-dropdown-panel,
+.popup_container {
+    pointer-events: auto;
+}

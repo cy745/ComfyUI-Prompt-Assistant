@@ -34,6 +34,47 @@ function getComfyUIDialogZIndex() {
 }
 
 /**
+ * 保护挂在 <body> 下的插件浮层（下拉面板、管理器弹窗等）
+ *
+ * ComfyUI 1.49+ 的模态设置弹窗会：
+ *   1. 给 <body> 设置 `pointer-events: none` —— 挂在 body 下的浮层会“可见但点不到”；
+ *   2. 把对话框 DOM 之外的 pointerdown 当作“外部点击” —— 点击下拉选项会把整个设置弹窗关掉。
+ *
+ * 这里显式恢复浮层的命中测试，并在浮层自身（冒泡阶段）截断 pointerdown/mousedown，
+ * 让 ComfyUI 的“外部点击关闭”逻辑收不到事件（click 仍会正常到达目标元素）。
+ * 下拉面板还会优先挂进最近的 [role="dialog"] 内部，从根上避免被判定为“外部点击”。
+ *
+ * @param {HTMLElement} element 需要保护的浮层
+ * @returns {Function} 清理函数
+ */
+export function guardFloatingLayer(element) {
+    if (!element) {
+        return () => {};
+    }
+
+    // 恢复命中测试（父级 body 可能是 pointer-events: none）
+    element.style.pointerEvents = 'auto';
+
+    // 关键：监听器挂在浮层自身上（冒泡阶段），而不是 document 的捕获阶段。
+    // 这样浮层内部的 mousedown/pointerdown 仍会先到达目标元素（拖动、聚焦、
+    // 选项点击都正常），只是不再继续冒泡到 document，避免触发 ComfyUI 对话框的
+    // “外部点击关闭”逻辑。
+    const stopBubble = (event) => {
+        if (event.target instanceof Node && element.contains(event.target)) {
+            event.stopPropagation();
+        }
+    };
+
+    element.addEventListener('pointerdown', stopBubble, false);
+    element.addEventListener('mousedown', stopBubble, false);
+
+    return () => {
+        element.removeEventListener('pointerdown', stopBubble, false);
+        element.removeEventListener('mousedown', stopBubble, false);
+    };
+}
+
+/**
  * 创建通用的设置弹窗
  * @param {Object} options 弹窗配置选项
  * @param {string} options.title 弹窗标题
@@ -85,7 +126,8 @@ export function createSettingsDialog(options) {
             modal.classList.add(dialogClassName);
         }
 
-
+        // 恢复命中测试，并阻止 ComfyUI 设置弹窗把弹窗内的点击当成“外部点击”而关闭
+        modal.__paReleaseGuard = guardFloatingLayer(modal);
 
         // 如果是确认对话框，设置特殊样式
         if (isConfirmDialog) {
@@ -454,6 +496,16 @@ export function createSettingsDialog(options) {
  * @param {HTMLElement} overlay 遮罩层元素
  */
 export function closeModalWithAnimation(modal, overlay) {
+    // 释放浮层的事件保护，避免监听器泄漏
+    if (modal && typeof modal.__paReleaseGuard === 'function') {
+        try {
+            modal.__paReleaseGuard();
+        } catch (error) {
+            // 忽略清理异常
+        }
+        modal.__paReleaseGuard = null;
+    }
+
     // 添加关闭动画类
     modal.classList.remove('modal-show');
     modal.classList.add('modal-hide');
@@ -787,10 +839,16 @@ export function createSelectGroup(label, options, initialValue = null, config = 
         window.removeEventListener('resize', updatePanelPosition);
         window.removeEventListener('scroll', updatePanelPosition, true);
 
+        // 释放浮层事件保护
+        if (typeof dropdownPanel.__paReleaseGuard === 'function') {
+            dropdownPanel.__paReleaseGuard();
+            dropdownPanel.__paReleaseGuard = null;
+        }
+
         // 等待动画完成后再移除面板和事件监听
         setTimeout(() => {
-            if (dropdownPanel.parentNode === document.body) {
-                document.body.removeChild(dropdownPanel);
+            if (dropdownPanel.parentNode) {
+                dropdownPanel.parentNode.removeChild(dropdownPanel);
             }
             document.removeEventListener('click', handleOutsideClick, true);
         }, 120); // 与CSS中的transition时间相匹配
@@ -799,8 +857,16 @@ export function createSelectGroup(label, options, initialValue = null, config = 
     const openPanel = () => {
         isOpen = true;
 
-        // 将面板临时附加到 body 上以避免裁切
-        document.body.appendChild(dropdownPanel);
+        // 挂到最近的 ComfyUI 对话框内部：面板仍在 body 下时，点击选项会被
+        // 对话框判定为“外部点击”而关闭整个设置弹窗；挂进对话框后即视为内部点击。
+        const dialogHost = dropdownContainer.closest('[role="dialog"]');
+        (dialogHost || document.body).appendChild(dropdownPanel);
+
+        // 恢复命中测试，并阻止 ComfyUI 设置弹窗把面板内的点击当成“外部点击”
+        if (typeof dropdownPanel.__paReleaseGuard === 'function') {
+            dropdownPanel.__paReleaseGuard();
+        }
+        dropdownPanel.__paReleaseGuard = guardFloatingLayer(dropdownPanel);
 
         // 计算下拉框相对于视口的位置
         const rect = dropdownContainer.getBoundingClientRect();
@@ -828,6 +894,10 @@ export function createSelectGroup(label, options, initialValue = null, config = 
     };
 
     const handleOutsideClick = (e) => {
+        // 点击面板内部：交给选项自己的 click 处理，不在这里关闭
+        if (dropdownPanel.contains(e.target)) {
+            return;
+        }
         // 如果点击的是下拉框本身，切换状态
         if (dropdownContainer.contains(e.target)) {
             e.stopPropagation();
@@ -1013,9 +1083,15 @@ export function createComboBoxGroup(label, options = [], initialValue = '', conf
         window.removeEventListener('resize', updatePanelPosition);
         window.removeEventListener('scroll', updatePanelPosition, true);
 
+        // 释放浮层事件保护
+        if (typeof dropdownPanel.__paReleaseGuard === 'function') {
+            dropdownPanel.__paReleaseGuard();
+            dropdownPanel.__paReleaseGuard = null;
+        }
+
         setTimeout(() => {
-            if (dropdownPanel.parentNode === document.body) {
-                document.body.removeChild(dropdownPanel);
+            if (dropdownPanel.parentNode) {
+                dropdownPanel.parentNode.removeChild(dropdownPanel);
             }
             document.removeEventListener('click', handleOutsideClick, true);
         }, 120);
@@ -1026,7 +1102,12 @@ export function createComboBoxGroup(label, options = [], initialValue = '', conf
         if (isOpen) return;
         isOpen = true;
 
-        document.body.appendChild(dropdownPanel);
+        // 挂到最近的 ComfyUI 对话框内部，避免点击选项触发“外部点击关闭”
+        const dialogHost = comboContainer.closest('[role="dialog"]');
+        (dialogHost || document.body).appendChild(dropdownPanel);
+
+        // 恢复命中测试，并阻止 ComfyUI 设置弹窗把面板内的点击当成“外部点击”
+        dropdownPanel.__paReleaseGuard = guardFloatingLayer(dropdownPanel);
 
         const rect = comboContainer.getBoundingClientRect();
         dropdownPanel.style.position = 'fixed';
